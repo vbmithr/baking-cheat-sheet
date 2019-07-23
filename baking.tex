@@ -1,0 +1,191 @@
+\documentclass[a4paper,twocolumn,10pt]{article}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+
+\lstdefinestyle{BashInputStyle}{
+  language=bash,
+  basicstyle=\small\sffamily,
+  numbers=left,
+  numberstyle=\tiny,
+  numbersep=3pt,
+  frame=tb,
+  columns=fullflexible,
+  backgroundcolor=\color{yellow!20},
+  linewidth=0.9\linewidth,
+  xleftmargin=0.1\linewidth
+}
+
+\title{Tezos Baking Cheat Sheet}
+\date{\today}
+\author{Vincent Bernardoff}
+
+\begin{document}
+\twocolumn
+\maketitle
+\tableofcontents
+\section{Introduction}
+
+This document intends to be a handy cheat sheet for Tezos
+operators. It details the installation and operation of Tezos
+software. It is a complement to the original
+documentation\footnote{\url{http://tezos.gitlab.io}} already
+available. It summarizes the different steps needed to compile and run
+a \emph{node} and associated \emph{baker}, \emph{endorser}, and optionally
+\emph{accuser} daemons which are necessary to participate in the PoS
+consensus process.
+
+The emphasized terms (in \emph{italic}) or quoted is technical
+vocabulary that is used in Tezos source code and thus often commonly
+used to talk about Tezos concepts. We encourage you to use it when you
+discuss Tezos things with your peers since it is more precise and will
+better describe what you are talking about.
+
+Tezos uses LPoS (\emph{liquid proof of stake}) to achive
+consensus. The proof of stake algorithm\footnote{Called \emph{Emmy} in
+  reference to Emmy Noether} implemented in Tezos nodes attributes
+block creation rights (“slots”) to stakeholders at random,
+proportional to the size of their stake.
+
+Operators (“bakers”) will need to initialize themselves as
+\emph{delegates}, then the proof of stake algorithm run by nodes will,
+after some time, attribute them block creation (“baking”) rights to
+them.
+
+The proof of stake algorithm also comprise an additional mechanism
+which increase
+security\footnote{\url{https://blog.nomadic-labs.com/analysis-of-emmy.html}}:
+32 \emph{endorsing} rights per block are attributed proportionally to
+bakers. Like baking blocks, endorsing blocks is rewarded by the
+network hence the bakers are incentivized to do it.
+
+Finally, bakers can also run an \emph{accuser} daemon, which watches
+the chain and try to detect reprehensible behaviour of other network
+participants. Upon finding such transgressions, the daemon can inject
+a \emph{denunciation} operation in the chain, which is also rewarded.
+
+It is your responsability as an operator (“baker”) to properly
+register as a \emph{delegate}, then launch and ensure proper operation
+of at least the \emph{node}, the \emph{baker} and \emph{endorser}
+daemons, and optionally the \emph{accuser}.
+
+The following is a brief description of the different components
+software and the interaction between those components. Configuration
+details and precise instructions on how to run it will be explained in
+a later section.
+
+\subsection{\texttt{tezos-node}}
+
+The Tezos node is the cornerstone of the network, the P2P node which
+interract (“gossip”) with the rest of the network and accepts clients
+commands (RPCs). It implements \emph{Emmy}, the consensus algorithm,
+the \emph{Michelson} virtual machine, and so on. It accepts messages
+from its P2P peers in a dedicated (configurable) TCP port and from
+this information, will decides which messages it considers genuine and
+will build a blockchain from them. It also listens on client requests
+on another TCP port (RPC). All other executables provided with the
+node are clients, which role is detailed below.
+
+\subsection{\texttt{tezos-client}}
+
+\emph{tezos-client} is a tool for querying the node and creating and
+injecting (\emph{injecting}) \emph{operations}, such as transactions,
+smart contract origination, voting, and so on. It is not directly
+related to baking but is necessary to create the cryptographic keys
+used by baking, endorsing and accusing daemons.
+
+\subsection{\texttt{tezos-baker-*}}
+
+The role of \texttt{tezos-baker-*} is to automatically create block
+and injection them in the node, which will broadcast them to its
+peers. Its operation is as follows:
+
+\begin{footnotesize}
+\begin{enumerate}
+\item Baker has access to a wallet with delegates
+\item Node notifies the baker of new blocks on the chain
+\item Baker checks with the shell if its delegates have slots
+\item Baker sleeps until its time to bake, then wakes up and…
+\item Queries the shell’s current mempool
+\item Build a block with operations
+\item Inject blocks to the node
+\end{enumerate}
+\end{footnotesize}
+
+\subsection{\texttt{tezos-endorser-*}}
+
+The role of \texttt{tezos-endorser-*} is to automatically inject
+endorsement operations in the node. Its operation is as follows:
+
+\begin{footnotesize}
+\begin{enumerate}
+\item Endorser has access to a wallet with delegates
+\item Shell notifies the endorser of new blocks on the chain
+\item Endorser checks with the shell if its delegates have endorsements slots
+\item Endorse sleeps until its time to endorse, then wakes up and…
+\item Prepare an endorsement operation
+\item Inject the endorsement to the node
+\end{enumerate}
+\end{footnotesize}
+
+\subsection{\texttt{tezos-accuser-*}}
+
+The role of \texttt{tezos-accuser-*} is to automatically inject proof
+of other bakers' misbehaviour in the node. Its operation is as
+follows:
+
+\begin{footnotesize}
+\begin{enumerate}
+\item Inspect the injected blocks and endorsement (via the shell)
+\item When a delegate behaves in a malicious way:
+  \begin{itemize}
+    \item A delegate injected two blocks at a same level on two different branches
+    \item A delegate endorsed two different blocks at a same level
+  \end{itemize}
+  → Inject a denounciation operation
+\item The incriminated user will be slashed of all its rewards and bond deposits
+\end{enumerate}
+\end{footnotesize}
+
+\subsection{\texttt{tezos-signer}}
+
+\texttt{tezos-signer} is an optional mechanism useful to provide
+additional security in some configurations. The aforementioned daemons
+need to access a wallet in order to function. This wallet can either
+have local keys (encrypted on disk, or on HSM\footnote{Ledger Nano S
+  is supported by default.}). In some situation you would like to put
+those keys in a different machine than the one the daemons are running
+on. In this situation, you can add \emph{remote keys} to the
+client. When used to sign data, the data to be signed will be sent to
+a remote server who handles the signing and returns the
+result. \texttt{tezos-signer} is such a server compatible with the
+rest of Tezos software for remote signing.
+
+\section{Prerequisite}
+Detailed\footnote{\url{http://tezos.gitlab.io/mainnet/introduction/howtoget.html}}
+instructions of how to obtain Tezos software can be found of the main
+Tezos documentation, and are outside the scope of this document. There
+are two means, either build the software directly from source code
+(needs a working OCaml installation with OPAM), or using a Docker
+image. Use whichever you feel most confortable with. OCaml programmers
+will probably choose the former, while devops will opt for the latter.
+
+It is \textbf{mandatory} to use NTP or a similar mechanism to keep
+your server on time when runnning Tezos deamons. Indeed, the consensus
+algorithm is synchronous\footnote{As Tezos evolves, this can change in
+  the future}, and therefore requires correct system time to function.
+
+Using SSDs is also strongly recommended. Tezos software might improve
+its performance in the future and work fine on legacy hard disks.
+
+%% \lstinline[style=BashInputStyle]´$ apt-get --purge remove rubygems´
+
+\section{Prepare}
+\subsection{Key management}
+\section{Run}
+\subsection{Tezos Node}
+\subsection{Tezos Baker}
+\subsection{Tezos Endorser}
+\subsection{Tezos Accuser}
+\subsection{Protocol change}
+\end{document}

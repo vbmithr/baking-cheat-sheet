@@ -1,0 +1,2 @@
+all:
+	xelatex baking.tex
