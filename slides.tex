@@ -1,0 +1,231 @@
+\documentclass{slides}
+
+\lstdefinestyle{BashInputStyle}{
+  language=bash,
+  basicstyle=\small\sffamily,
+  numbers=left,
+  numberstyle=\tiny,
+  numbersep=3pt,
+  frame=tb,
+  columns=fullflexible,
+  backgroundcolor=\color{yellow!20},
+  linewidth=0.9\linewidth,
+  xleftmargin=0.1\linewidth
+}
+
+\maintitle{Tezos Baking}
+\mainauthor{Vincent \textsc{Bernardoff}}
+\confname{Baking Day Series}
+\confshortname{Baking Day Series}
+\confdate{July 27, 2019}
+
+\begin{document}
+
+\maketitle
+
+\begin{slide}
+  \title{About me}
+  \begin{itemize}
+    \item Joined Tezos in October 2016
+    \item Among the first employees
+    \item Worked on:
+      \begin{itemize}
+        \item P2P layer
+        \item Cryptographic libraries
+        \item HSM support (Ledger Nano S)
+        \item C bindings (LMDB database)
+      \end{itemize}
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Tezos Consensus}
+  \begin{itemize}
+  \item Consensus by “Liquid Proof-of-Stake” (\textbf{LPOS})
+  \item No “mining”: does not require specific hardware
+  \item 1 vote (“roll”) = 8K XTZ
+  \item Open to everyone above this threshold
+  \item Sub-threshold can delegate to “bakers”
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Consensus 2}
+  \begin{itemize}
+  \item Block creation rights (“slots”) in proportion to a baker's
+    active stake
+  \item Bakers need to register as delegates
+  \item Bakers also “endorse” past blocks for additional security
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Tezos Node}
+  \begin{itemize}
+  \item Main component of a baking infrastructure
+  \item Listens to messages and reconstruct the Tezos blockchain
+  \item \emph{Emmy}, Michelson VM, etc.
+  \item Gossips with other nodes (P2P port)
+  \item Accepts client commands (RPC port)
+  \item Baking daemons are \emph{clients}
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Tezos Baker}
+
+  Automatically create block and inject them in the node, which
+  will broadcast them to its peers.
+  \bigskip
+
+\begin{enumerate}
+  \item Baker has access to a wallet with delegates
+  \item Node notifies the baker of new blocks on the chain
+  \item Baker checks with the shell if its delegates have slots
+  \item Baker sleeps until its time to bake, then wakes up and…
+  \item Queries the shell’s current mempool
+  \item Build a block with operations
+  \item Inject blocks to the node
+  \end{enumerate}
+\end{slide}
+
+\begin{slide}
+  \title{Tezos Endorser}
+
+  Automatically inject endorsement operations in the node.
+  \bigskip
+
+\begin{enumerate}
+\item Endorser has access to a wallet with delegates
+\item Shell notifies the endorser of new blocks on the chain
+\item Endorser checks with the shell if its delegates have endorsements slots
+\item Endorse sleeps until its time to endorse, then wakes up and…
+\item Prepare an endorsement operation
+\item Inject the endorsement to the node
+\end{enumerate}
+\end{slide}
+
+\begin{slide}
+  \title{Tezos Accuser}
+
+  Automatically inject proof of other bakers’ misbehaviour in the
+  node.
+  \bigskip
+
+\begin{enumerate}
+\item Inspect the injected blocks and endorsement (via the shell)
+\item When a delegate behaves in a malicious way:
+  \begin{itemize}
+  \item A delegate injected two blocks at a same level on two
+    different branches
+  \item A delegate endorsed two different blocks at a same level
+  \end{itemize}
+\item Inject a denunciation operation
+\item The offending user will be slashed of all its rewards and bond
+  deposits
+\end{enumerate}
+\bigskip
+Misbehaviour is most of the time accidental, stay tuned…
+\end{slide}
+
+\begin{slide}
+  \title{Prerequisites}
+  \begin{itemize}
+  \item “Modern” PC should be enough (4G RAM)
+  \item SSDs are strongly recommended
+  \item Good internet connection
+    \bigskip
+  \item NTP server (\emph{Emmy} is \textbf{synchronous})
+  \item Tezos node in \textbf{full} mode
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Key management}
+  \begin{itemize}
+  \item Delegate (baker's) address must an \emph{implicit address}.
+  \item Smart contract (i.e. \emph{multisig}) are not allowed
+  \item Baking address must contain enough funds to pay the bonds
+  \item Baker is an hot wallet: security is critical!
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Encrypted keys on disk}
+  Pros: Simple\\
+  Cons:
+  \begin{itemize}
+  \item Interactive: user must enter a password every time a
+    daemon is launched
+  \item Private key lives in RAM\\
+  \end{itemize}
+  \lstinline[style=BashInputStyle]'$ tezos-client gen keys MyBaker --encrypted'
+\end{slide}
+
+\begin{slide}
+  \title{Ledger Nano S}
+  Pros: Most secure method\\
+  Cons: Need a HSM connected to the baking server\\
+
+  \lstinline[style=BashInputStyle]'$ tezos-client list connected ledgers'\\
+  \lstinline[style=BashInputStyle]'$ tezos-client import secret key MyBaker <ledger_id>'\\
+  \lstinline[style=BashInputStyle]'$ tezos-client setup ledger to bake for MyBaker'
+\end{slide}
+
+\begin{slide}
+  \title{Delegate registration}
+  Required for baking:\\
+  \begin{itemize}
+    \item A balance of at least one roll (XTZ 8000)
+    \item Be registered as a delegate at least 7 cycles before the
+      current one
+  \end{itemize}
+  \lstinline[style=BashInputStyle]'$ tezos-client register key MyBaker as delegate'
+\end{slide}
+
+\begin{slide}
+  \title{Run the node}
+  Required for baking:\\
+  \begin{itemize}
+    \item At least one node is required for baking
+    \item Connected only to \textbf{trusted} peers
+    \item Use the \textbf{full} operation mode
+    \item Open the RPC port on a private IP only
+  \end{itemize}
+\end{slide}
+
+\begin{slide}
+  \title{Run the baking daemons}
+  \begin{itemize}
+    \item \texttt{tezos-baker} needs to run on the same host as the
+      node
+    \item Other daemons can be remote but should be “close” to the node
+    \item During protocol transitions, run both sets of daemons
+    \item Launch the daemons:\\
+  \end{itemize}
+
+  \lstinline[style=BashInputStyle]'$ tezos-baker-004-Pt24m4xi run with local node ~/.tezos-node'
+
+\lstinline[style=BashInputStyle]'$ tezos-endorser-004-Pt24m4xi run'
+
+\lstinline[style=BashInputStyle]'$ tezos-accuser-004-Pt24m4xi run'\\
+
+Running multiple sets of baking daemons is tricky because of the risk
+of double baking.
+
+\end{slide}
+
+\begin{slide}
+  \title{Thank you!}
+  \begin{itemize}
+    \item Me: Vincent Bernardoff \texttt{<vincent.bernardoff@tezos.com>}
+    \item Telegram: @vbmithr
+    \item Tezos: \texttt{https://www.tezos.com}
+    \item Tezos JP: \texttt{https://www.tezos.co.jp}
+    \item Tezos Foundation: \texttt{https://www.tezosfoundation.ch}
+    \item Official Tezos chat room @ Matrix : \textbf{\#tezos}\footnote{\texttt{https://riot.im/app/\#/room/\#tezos:matrix.org}}
+    \item IRC channel for developers: \textbf{\#tezos @ freenode}
+  \end{itemize}
+\end{slide}
+
+\end{document}

@@ -2,6 +2,7 @@
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{hyperref}
+\usepackage{fullpage}
 
 \lstdefinestyle{BashInputStyle}{
   language=bash,
@@ -16,9 +17,12 @@
   xleftmargin=0.1\linewidth
 }
 
-\title{Tezos Baking Cheat Sheet}
+\title{Tezos Baking, Theory \& Practice}
 \date{\today}
-\author{Vincent Bernardoff}
+\author{
+  Vincent Bernardoff\\
+  Tezos Southeast Asia
+}
 
 \begin{document}
 \twocolumn
@@ -30,27 +34,28 @@ This document intends to be a handy cheat sheet for Tezos
 operators. It details the installation and operation of Tezos
 software. It is a complement to the original
 documentation\footnote{\url{http://tezos.gitlab.io}} already
-available. It summarizes the different steps needed to compile and run
-a \emph{node} and associated \emph{baker}, \emph{endorser}, and optionally
-\emph{accuser} daemons which are necessary to participate in the PoS
-consensus process.
+available. It summarizes the different steps needed to run a
+\emph{node} and associated \emph{baker}, \emph{endorser}, and
+optionally \emph{accuser} daemons which are necessary to \emph{bake},
+i.e. participate in the Tezos consensus algorithm.
 
-The emphasized terms (in \emph{italic}) or quoted is technical
+The emphasized terms (in \emph{italic}) or “quoted” is technical
 vocabulary that is used in Tezos source code and thus often commonly
 used to talk about Tezos concepts. We encourage you to use it when you
 discuss Tezos things with your peers since it is more precise and will
 better describe what you are talking about.
 
-Tezos uses LPoS (\emph{liquid proof of stake}) to achive
+Tezos uses LPoS (\emph{liquid proof of stake}) to achieve
 consensus. The proof of stake algorithm\footnote{Called \emph{Emmy} in
   reference to Emmy Noether} implemented in Tezos nodes attributes
 block creation rights (“slots”) to stakeholders at random,
 proportional to the size of their stake.
 
-Operators (“bakers”) will need to initialize themselves as
-\emph{delegates}, then the proof of stake algorithm run by nodes will,
-after some time, attribute them block creation (“baking”) rights to
-them.
+Operators (“bakers”) will need to register as \emph{delegates}, then
+the proof of stake algorithm run by nodes will, after some time,
+attribute them block creation (“baking”) rights to them provided their
+wallets contains at least one \emph{roll}\footnote{Currently, XTZ
+  8000} of XTZ.
 
 The proof of stake algorithm also comprise an additional mechanism
 which increase
@@ -62,9 +67,16 @@ network hence the bakers are incentivized to do it.
 Finally, bakers can also run an \emph{accuser} daemon, which watches
 the chain and try to detect reprehensible behaviour of other network
 participants. Upon finding such transgressions, the daemon can inject
-a \emph{denunciation} operation in the chain, which is also rewarded.
+a \emph{denunciation} operation in the chain, which is also
+rewarded. Such transgressions are \emph{double baking} and
+\emph{double endorsing}. They respectively mean that a baker baked two
+blocks of the same height, or endorsed two different blocks at the
+same height. This can be either a deliberate attack on the network or
+the result of negligence in running a baking
+infrastructure. Historically, only the latter has happened. We will
+see later how it happens and how to prevent it.
 
-It is your responsability as an operator (“baker”) to properly
+It is your responsibility as an operator (“baker”) to properly
 register as a \emph{delegate}, then launch and ensure proper operation
 of at least the \emph{node}, the \emph{baker} and \emph{endorser}
 daemons, and optionally the \emph{accuser}.
@@ -77,28 +89,49 @@ a later section.
 \subsection{\texttt{tezos-node}}
 
 The Tezos node is the cornerstone of the network, the P2P node which
-interract (“gossip”) with the rest of the network and accepts clients
+interacts (“gossip”) with the rest of the network and accepts clients
 commands (RPCs). It implements \emph{Emmy}, the consensus algorithm,
-the \emph{Michelson} virtual machine, and so on. It accepts messages
-from its P2P peers in a dedicated (configurable) TCP port and from
-this information, will decides which messages it considers genuine and
-will build a blockchain from them. It also listens on client requests
-on another TCP port (RPC). All other executables provided with the
-node are clients, which role is detailed below.
+the \emph{Michelson}\footnote{Tezos' native smart contract language}
+virtual machine, and so on. It accepts messages from its P2P peers in
+a dedicated (configurable) TCP port and from this information, will
+decides which messages it considers genuine and will build a
+blockchain from them. It also listens on client requests on another
+TCP port (RPC).
+
+The node has multiple modes of operation\footnote{See
+  \url{http://tezos.gitlab.io/mainnet/user/history_modes.html}}:
+
+\begin{description}
+  \item[archive] The node will maintain a full \emph{context}, i.e. be
+    able to answer queries regarding any block on the network, such
+    has “what was the balance of address \emph{A} at block \emph{B}
+    for any \emph{B}”. Takes a lot of space (about 170 GiB).
+   \item[full] The node will maintain a context up to 5 cycles in the
+     past. Takes much less space (about 50 GiB). This is the
+     \textbf{recommended} mode for baking.
+    \item[rolling] This is the lightest mode as it only maintains a
+      minimal rolling fragment of the chain data so the node can still
+      validate new blocks and synchronize with the
+      head. \textbf{Unsuitable for baking}.
+\end{description}
+
+All other executables provided with the node are
+clients, which role is detailed below.
 
 \subsection{\texttt{tezos-client}}
 
-\emph{tezos-client} is a tool for querying the node and creating and
-injecting (\emph{injecting}) \emph{operations}, such as transactions,
-smart contract origination, voting, and so on. It is not directly
-related to baking but is necessary to create the cryptographic keys
-used by baking, endorsing and accusing daemons.
+\emph{tezos-client} is a tool for querying the node and creating
+(\emph{injecting}) \emph{operations}, such as transactions, smart
+contract origination, voting, and so on. It is not directly related to
+baking but is necessary to create the cryptographic keys used by
+baking, endorsing and accusing daemons.
 
 \subsection{\texttt{tezos-baker-*}}
 
-The role of \texttt{tezos-baker-*} is to automatically create block
-and injection them in the node, which will broadcast them to its
-peers. Its operation is as follows:
+The role of \texttt{tezos-baker-*}\footnote{\texttt{*} relates to the
+  protocol version, currently \texttt{004-Pt24m4xi}} is to
+automatically create block and inject them in the node, which will
+broadcast them to its peers. Its operation is as follows:
 
 \begin{footnotesize}
 \begin{enumerate}
@@ -142,8 +175,9 @@ follows:
     \item A delegate injected two blocks at a same level on two different branches
     \item A delegate endorsed two different blocks at a same level
   \end{itemize}
-  → Inject a denounciation operation
-\item The incriminated user will be slashed of all its rewards and bond deposits
+  → Inject a denunciation operation
+\item The offending user will be slashed of all its rewards and bond
+  deposits
 \end{enumerate}
 \end{footnotesize}
 
@@ -159,33 +193,216 @@ on. In this situation, you can add \emph{remote keys} to the
 client. When used to sign data, the data to be signed will be sent to
 a remote server who handles the signing and returns the
 result. \texttt{tezos-signer} is such a server compatible with the
-rest of Tezos software for remote signing.
+rest of Tezos software for remote signing. The configuration and use
+of such a server is outside the scope of this document\footnote{More
+  info at
+  \url{http://tezos.gitlab.io/mainnet/user/key-management.html\#signer}}.
 
-\section{Prerequisite}
+\section{Prerequisites}
+
 Detailed\footnote{\url{http://tezos.gitlab.io/mainnet/introduction/howtoget.html}}
 instructions of how to obtain Tezos software can be found of the main
 Tezos documentation, and are outside the scope of this document. There
-are two means, either build the software directly from source code
+are two ways, either build the software directly from source code
 (needs a working OCaml installation with OPAM), or using a Docker
-image. Use whichever you feel most confortable with. OCaml programmers
-will probably choose the former, while devops will opt for the latter.
+image. Use whichever you feel most comfortable with. OCaml programmers
+will probably choose the former, while devops might opt for the
+latter.
 
 It is \textbf{mandatory} to use NTP or a similar mechanism to keep
-your server on time when runnning Tezos deamons. Indeed, the consensus
+your server on time when running Tezos daemons. Indeed, the consensus
 algorithm is synchronous\footnote{As Tezos evolves, this can change in
   the future}, and therefore requires correct system time to function.
 
 Using SSDs is also strongly recommended. Tezos software might improve
 its performance in the future and work fine on legacy hard disks.
 
-%% \lstinline[style=BashInputStyle]´$ apt-get --purge remove rubygems´
 
 \section{Prepare}
 \subsection{Key management}
-\section{Run}
+
+Tezos baking requires the utmost care in how cryptographic keys are
+handled. Indeed, in Tezos, the key used to sign blocks and
+endorsements is the key of your delegate account, which,
+currently\footnote{\today} \textbf{must} be an implicit account (tz1
+address). This means that you must use a “hot wallet” in order to
+sign, and that this wallet must contain enough funds in order to pay
+the bonds that are automatically frozen from your wallet each time you
+bake or endorse. They will be returned, alongside with rewards, after
+5 cycles.
+
+All this implies that bakers are target for hacks, like the hot wallet
+of an exchange. There are multiple ways to design a secure baking
+infrastructure, and this is mostly outside the scope of this
+tutorial. We succinctly present two possibilities, one using encrypted private
+keys on disk, and the other using the Ledger Nano S, compatible out of
+the box with Tezos software.
+
+\subsubsection{Encrypted on disk}
+
+Tezos allows you to create secret keys that will be stored encrypted
+on disk. Upon creating such keys, or using them, a password will be
+requested. This means that launching baking daemons will require human
+intervention because the password will be requested at startup. Use this:
+
+\lstinline[style=BashInputStyle]'$ tezos-client gen keys MyBaker --encrypted'
+
+This will create a key pair and encrypt it on disk using the password
+you provided.
+
+\subsubsection{Using Ledger Nano S}
+
+Using a Ledger Nano S provides additional security since the private
+key will never leave the device. Here is a list of steps you need to
+perform in order to have a working setup:
+
+\begin{footnotesize}
+\begin{enumerate}
+\item Initialize your Ledger with the 24 mnemonic words
+\item Upgrade to latest firmware \& install Tezos Baking app from
+  LedgerLive
+\item Connect the Ledger to your baking server
+\end{enumerate}
+\end{footnotesize}
+
+To get a listing of Ledger related commands handled by
+\texttt{tezos-client}:
+
+\lstinline[style=BashInputStyle]'$ tezos-client man ledger'
+
+In order to list connect Ledgers which are detected by the software,
+do:
+
+\lstinline[style=BashInputStyle]'$ tezos-client list connected ledgers'
+
+Each Ledger will be identified by mnemonic like
+\texttt{hidden-tiger-crouching-dragon} in order to help you
+distinguish between different Ledgers you might be connecting.
+
+In order to add Ledger keys in your wallet, use a command like
+
+\lstinline[style=BashInputStyle]'$ tezos-client import secret key MyBaker <ledger_id>'
+
+where \texttt{<ledger\_id>} is a string like {\footnotesize \texttt{ledger://hidden-tiger-crouching-dragon/ed25519/0'/0'}}
+
+At this point you will have a new key added to your wallet called
+\texttt{MyBaker}.
+
+The next step is to setup the Ledger for baking with this key. Ledgers
+have a protection against double baking. You first need to
+\emph{setup} your Ledger to authorize one of its key to bake. You can
+optionally setup the \emph{high watermark}, i.e. the level under which
+the Ledger will refuse to sign a block or endorsement in order to
+avoid double baking.
+
+\lstinline[style=BashInputStyle]'$ tezos-client setup ledger to bake for MyBaker'
+
+At this point your Ledger should be ready to sign blocks for your
+daemons.
+
+\subsection{Register as a delegate}
+
+In order to bake, two things are required
+
+\begin{footnotesize}
+\begin{enumerate}
+\item A balance of at least one roll, i.e. XTZ 8000\footnote{On
+  \today. In the past, a roll was XTZ 10000}
+\item Be registered as a delegate at least 7 cycles before the current cycle
+\end{enumerate}
+\end{footnotesize}
+
+To register as a delegate, use:
+
+\lstinline[style=BashInputStyle]'$ tezos-client register key MyBaker as delegate'
+
+You then need to wait for 7 cycles to have baking and endorsing slots
+allowed to your baker. It means that if the current cycle is $n$, you
+might start baking at cycle $n+7$ or $n+8$ depending on whether or not
+you registered your delegate with a balance more than one or equal to
+one roll before cycle $n$'s snapshot\footnote{See
+  \url{http://tezos.gitlab.io/mainnet/whitedoc/proof_of_stake.html}}.
+
+\section{Configure and Run}
+
 \subsection{Tezos Node}
-\subsection{Tezos Baker}
-\subsection{Tezos Endorser}
-\subsection{Tezos Accuser}
-\subsection{Protocol change}
+
+Baking daemons are clients to the Tezos node. Therefore you need to
+run (at least!) one node in order to be able to bake. As explained
+earlier, the recommanded operation mode for a baking mode is the
+\textbf{full} mode. The \textbf{rolling} mode is not suitable for
+baking.
+
+Detailed instructions on how to run the node is outside the scope of
+this tutorial. We mention here import relevant configuration items for
+a node used for baking.
+
+\subsubsection{Trusted peers}
+
+Since the node will broadcast blocks and endorsements you created to
+the network, you probably want to avoid giving your IP address
+information to untrusted peers as this could provide a cue to guess
+your physical location. In order to activate this feature, you need to
+enable the \texttt{--private-mode} to connect only to a fixed set of
+peers and optionally use \texttt{--no-bootstrap-peers} in conjunction
+with \texttt{--peers} arguments to only connect to peers you
+trust. This can be done either by providing command-line arguments
+when you launch the node, or in the node configuration file.
+
+Most bakers use a layered network architecture where they have a swarm
+of \emph{front nodes} connecting to the rest of the network and a
+baking node only connected to those front nodes, often with a
+dedicated link that makes it much harder to infer the location of the
+baking node from front nodes. This way, the rest of the network only
+see your front nodes baking blocks and endorsements whereas the real
+baking is done in the hidden baking node.
+
+\subsubsection{Local-only RPC port}
+
+It is mandatory that the rest of the internet do not have access to
+the RPC port\footnote{Usually TCP 8732} of the node. Indeed, some RPC
+commands are particularly demanding in terms of performance and it
+would thus be trivial for an attacker to successfully DDoS your node by
+repeatedly requesting such commands.
+
+\subsection{Baking daemons}
+
+\subsubsection{Run}
+
+The \texttt{tezos-baker-*} daemon needs to have local access to a node
+working directory in order to function, meaning you need to run it in
+the same machine than the node. Other daemons can connect to a remote
+node, however it is still recommended to run them close\footnote{On
+  the same network or host} to a node for performance reasons.\\
+
+\lstinline[style=BashInputStyle]'$ tezos-baker-004-Pt24m4xi run with local node ~/.tezos-node'
+
+\lstinline[style=BashInputStyle]'$ tezos-endorser-004-Pt24m4xi run'
+
+\lstinline[style=BashInputStyle]'$ tezos-accuser-004-Pt24m4xi run'
+
+\subsubsection{Handling protocol changes}
+
+Tezos is a self-amending ledger, meaning that bakers vote for new
+protocol upgrades that can change most of Tezos operation, including
+the consensus algorithm and the way blocks are baked. For this reason,
+the baker, endorser and accuser daemons are tied to a specific version
+of a protocol. Most of protocol upgrades so far did not change
+fundamentally the way the consensus is achieved, but nonetheless, in
+order to correctly handle protocol upgrades, you need to run one set
+of daemons per protocol. The current set of daemons will operate until
+the last block of the current protocol, and then stop, whereas the
+“next” set of daemons will start operating on the first block of the
+new protocol.
+
+Running both sets of daemons ensure your setup will correctly
+transition from one protocol to another and that you will not miss
+baking blocks or endorsements.
+
+The current protocol is \texttt{004-Pt24m4xi}. In the following we
+show how to run daemons with this specific protocol version as an
+example.
+
+%% \tableofcontents
+
 \end{document}
